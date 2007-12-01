@@ -1,0 +1,455 @@
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+
+#include <poll.h>
+#include <adns.h>
+
+#include "EVAPI.h"
+
+static HV *stash;
+static adns_state ads;
+
+struct ctx
+{
+  SV *self;
+  adns_query query;
+  SV *cb;
+};
+
+static SV *
+ha2sv (adns_rr_hostaddr *rr)
+{
+  AV *av = newAV ();
+  av_push (av, newSVpv (rr->host, 0));
+  // TODO: add addresses
+
+  return newRV_noinc ((SV *)av);
+}
+
+static void
+process ()
+{
+  dSP;
+
+  for (;;)
+    {
+      int i;
+      adns_query q = 0;
+      adns_answer *a;
+      void *ctx;
+      SV *cb;
+      struct ctx *c;
+      int r = adns_check (ads, &q, &a, &ctx);
+      
+      if (r)
+        break;
+
+      c = (struct ctx *)ctx;
+      cb = c->cb;
+      c->cb = 0;
+      ev_unref ();
+      SvREFCNT_dec (c->self);
+
+      PUSHMARK (SP);
+
+      EXTEND (SP, a->nrrs + 2);
+      PUSHs (sv_2mortal (newSViv (a->status)));
+      PUSHs (sv_2mortal (newSViv (a->expires)));
+
+      for (i = 0; i < a->nrrs; ++i)
+        {
+          SV *sv;
+
+          switch (a->type & adns_r_unknown ? adns_r_unknown : a->type)
+            {
+              case adns_r_ns_raw:
+              case adns_r_cname:
+              case adns_r_ptr:
+              case adns_r_ptr_raw:
+                sv = newSVpv (a->rrs.str [i], 0);
+                break;
+
+              case adns_r_txt:
+                {
+                  AV *av = newAV ();
+                  adns_rr_intstr *rr = a->rrs.manyistr [i];
+
+                  while (rr->str)
+                    {
+                      av_push (av, newSVpvn (rr->str, rr->i));
+                      ++rr;
+                    }
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_a:
+                sv = newSVpv (inet_ntoa (a->rrs.inaddr [i]), 0);
+                break;
+
+              case adns_r_ns:
+                sv = ha2sv (a->rrs.hostaddr + i);
+                break;
+
+              case adns_r_hinfo:
+                {
+                  /* untested */
+                  AV *av = newAV ();
+                  adns_rr_intstrpair *rr = a->rrs.intstrpair + i;
+
+                  av_push (av, newSVpvn (rr->array [0].str, rr->array [0].i));
+                  av_push (av, newSVpvn (rr->array [1].str, rr->array [1].i));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_rp:
+              case adns_r_rp_raw:
+                {
+                  /* untested */
+                  AV *av = newAV ();
+                  adns_rr_strpair *rr = a->rrs.strpair + i;
+
+                  av_push (av, newSVpv (rr->array [0], 0));
+                  av_push (av, newSVpv (rr->array [1], 0));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_mx:
+                {
+                  AV *av = newAV ();
+                  adns_rr_inthostaddr *rr = a->rrs.inthostaddr + i;
+
+                  av_push (av, newSViv (rr->i));
+                  av_push (av, ha2sv (&rr->ha));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_mx_raw:
+                {
+                  AV *av = newAV ();
+                  adns_rr_intstr *rr = a->rrs.intstr + i;
+
+                  av_push (av, newSViv (rr->i));
+                  av_push (av, newSVpv (rr->str, 0));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_soa:
+              case adns_r_soa_raw:
+                {
+                  AV *av = newAV ();
+                  adns_rr_soa *rr = a->rrs.soa + i;
+
+                  av_push (av, newSVpv (rr->mname, 0));
+                  av_push (av, newSVpv (rr->rname, 0));
+                  av_push (av, newSVuv (rr->serial));
+                  av_push (av, newSVuv (rr->refresh));
+                  av_push (av, newSVuv (rr->retry));
+                  av_push (av, newSVuv (rr->expire));
+                  av_push (av, newSVuv (rr->minimum));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_srv_raw:
+                {
+                  AV *av = newAV ();
+                  adns_rr_srvraw *rr = a->rrs.srvraw + i;
+
+                  av_push (av, newSViv (rr->priority));
+                  av_push (av, newSViv (rr->weight));
+                  av_push (av, newSViv (rr->port));
+                  av_push (av, newSVpv (rr->host, 0));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_srv:
+                {
+                  AV *av = newAV ();
+                  adns_rr_srvha *rr = a->rrs.srvha + i;
+
+                  av_push (av, newSViv (rr->priority));
+                  av_push (av, newSViv (rr->weight));
+                  av_push (av, newSViv (rr->port));
+                  av_push (av, ha2sv (&rr->ha));
+
+                  sv = newRV_noinc ((SV *)av);
+                }
+                break;
+
+              case adns_r_unknown:
+                sv = newSVpvn (a->rrs.byteblock [i].data, a->rrs.byteblock [i].len);
+                break;
+
+              default:
+              case adns_r_addr:
+                sv = &PL_sv_undef; /* not supported */
+                break;
+            }
+
+          PUSHs (sv_2mortal (sv));
+        }
+
+      free (a);
+
+      PUTBACK;
+      call_sv (cb, G_VOID | G_DISCARD | G_EVAL);
+      SPAGAIN;
+
+      SvREFCNT_dec (cb);
+    }
+}
+
+static struct pollfd *fds;
+static int nfd, mfd;
+static ev_io *iow;
+static ev_timer tw;
+static ev_prepare prepare_ev;
+static struct timeval tv_now;
+
+static void
+update_now (EV_P)
+{
+  ev_tstamp t = ev_now ();
+
+  tv_now.tv_sec  = (long)t;
+  tv_now.tv_usec = (long)((t - (ev_tstamp)tv_now.tv_sec) * 1e-6);
+}
+
+static void
+timer_cb (EV_P_ ev_timer *w, int revents)
+{
+}
+
+static void
+io_cb (EV_P_ ev_io *w, int revents)
+{
+  update_now (EV_A);
+
+  if (revents & EV_READ ) adns_processreadable  (ads, w->fd, &tv_now);
+  if (revents & EV_WRITE) adns_processwriteable (ads, w->fd, &tv_now);
+}
+
+// create io watchers for each fd and a timer before blocking
+static void
+prepare_cb (EV_P_ ev_prepare *w, int revents)
+{
+  int i;
+  int timeout = 3600000;
+
+  if (ev_is_active (&tw))
+    {
+      ev_ref ();
+      ev_timer_stop (EV_A_ &tw);
+    }
+
+  for (i = 0; i < nfd; ++i)
+    {
+      ev_ref ();
+      ev_io_stop (EV_A_ iow + i);
+    }
+
+  process ();
+
+  update_now (EV_A);
+
+  nfd = mfd;
+
+  while (adns_beforepoll (ads, fds, &nfd, &timeout, &tv_now))
+    {
+      mfd = nfd;
+
+      free (iow); iow = malloc (mfd * sizeof (ev_io));
+      free (fds); fds = malloc (mfd * sizeof (struct pollfd));
+    }
+
+  ev_timer_set (&tw, timeout * 1e-3, 0.);
+  ev_timer_start (EV_A_ &tw);
+  ev_unref ();
+
+  // create one ev_io per pollfd
+  for (i = 0; i < nfd; ++i)
+    {
+      ev_io_init (iow + i, io_cb, fds [i].fd,
+        ((fds [i].events & POLLIN ? EV_READ : 0)
+         | (fds [i].events & POLLOUT ? EV_WRITE : 0)));
+
+      ev_io_start (EV_A_ iow + i);
+      ev_unref ();
+    }
+}
+
+MODULE = EV::ADNS                PACKAGE = EV::ADNS
+
+PROTOTYPES: ENABLE
+
+BOOT:
+{
+  stash = gv_stashpv ("EV::ADNS", 1);
+
+  static const struct {
+    const char *name;
+    IV iv;
+  } *civ, const_iv[] = {
+#   define const_iv(name) { # name, (IV) adns_ ## name },
+    const_iv (if_none)
+    const_iv (if_noenv)
+    const_iv (if_noerrprint)
+    const_iv (if_noserverwarn)
+    const_iv (if_debug)
+    const_iv (if_logpid)
+    const_iv (if_noautosys)
+    const_iv (if_eintr)
+    const_iv (if_nosigpipe)
+    const_iv (if_checkc_entex)
+    const_iv (if_checkc_freq)
+
+    const_iv (qf_none)
+    const_iv (qf_search)
+    const_iv (qf_usevc)
+    const_iv (qf_owner)
+    const_iv (qf_quoteok_query)
+    const_iv (qf_quoteok_cname)
+    const_iv (qf_quoteok_anshost)
+    const_iv (qf_quotefail_cname)
+    const_iv (qf_cname_loose)
+    const_iv (qf_cname_forbid)
+
+    const_iv (rrt_typemask)
+    const_iv (_qtf_deref)
+    const_iv (_qtf_mail822)
+    const_iv (r_unknown)
+    const_iv (r_none)
+    const_iv (r_a)
+    const_iv (r_ns_raw)
+    const_iv (r_ns)
+    const_iv (r_cname)
+    const_iv (r_soa_raw)
+    const_iv (r_soa)
+    const_iv (r_ptr_raw)
+    const_iv (r_ptr)
+    const_iv (r_hinfo)
+    const_iv (r_mx_raw)
+    const_iv (r_mx)
+    const_iv (r_txt)
+    const_iv (r_rp_raw)
+    const_iv (r_rp)
+    const_iv (r_srv_raw)
+    const_iv (r_srv)
+    const_iv (r_addr)
+
+    const_iv (s_ok)
+    const_iv (s_nomemory)
+    const_iv (s_unknownrrtype)
+    const_iv (s_systemfail)
+    const_iv (s_max_localfail)
+    const_iv (s_timeout)
+    const_iv (s_allservfail)
+    const_iv (s_norecurse)
+    const_iv (s_invalidresponse)
+    const_iv (s_unknownformat)
+    const_iv (s_max_remotefail)
+    const_iv (s_rcodeservfail)
+    const_iv (s_rcodeformaterror)
+    const_iv (s_rcodenotimplemented)
+    const_iv (s_rcoderefused)
+    const_iv (s_rcodeunknown)
+    const_iv (s_max_tempfail)
+    const_iv (s_inconsistent)
+    const_iv (s_prohibitedcname)
+    const_iv (s_answerdomaininvalid)
+    const_iv (s_answerdomaintoolong)
+    const_iv (s_invaliddata)
+    const_iv (s_max_misconfig)
+    const_iv (s_querydomainwrong)
+    const_iv (s_querydomaininvalid)
+    const_iv (s_querydomaintoolong)
+    const_iv (s_max_misquery)
+    const_iv (s_nxdomain)
+    const_iv (s_nodata)
+    const_iv (s_max_permfail)
+  };
+
+  for (civ = const_iv + sizeof (const_iv) / sizeof (const_iv [0]); civ-- > const_iv; )
+    newCONSTSUB (stash, (char *)civ->name, newSViv (civ->iv));
+
+  I_EV_API ("EV::ADNS");
+
+  ev_prepare_init (&prepare_ev, prepare_cb); ev_prepare_start (EV_DEFAULT_ &prepare_ev);
+  ev_unref ();
+
+  ev_init (&tw, timer_cb);
+
+  adns_init (&ads, adns_if_noenv | adns_if_noerrprint | adns_if_noserverwarn | adns_if_noautosys, 0);
+}
+
+void submit (char *owner, int type, int flags, SV *cb)
+	PPCODE:
+{
+        SV *csv = NEWSV (0, sizeof (struct ctx));
+ 	struct ctx *c = (struct ctx *)SvPVX (csv);
+        int r = adns_submit (ads, owner, type, flags, (void *)c, &c->query);
+
+        if (r)
+          {
+            SvREFCNT_dec (csv);
+            errno = r;
+            XSRETURN_EMPTY;
+          }
+        else
+          {
+            ev_ref ();
+            SvPOK_only (csv);
+            SvCUR_set (csv, sizeof (struct ctx));
+
+            c->self = csv;
+            c->cb   = newSVsv (cb);
+
+            if (GIMME_V != G_VOID)
+              {
+                csv = sv_2mortal (newRV_inc (csv));
+                sv_bless (csv, stash);
+                XPUSHs (csv);
+              }
+          }
+}
+
+void DESTROY (SV *req)
+	ALIAS:
+        cancel = 1
+	CODE:
+{
+        struct ctx *c;
+
+        if (!(SvROK (req) && SvOBJECT (SvRV (req))
+              && (SvSTASH (SvRV (req)) == stash)))
+          croak ("object is not of type EV::ADNS");
+        
+        c = (struct ctx *)SvPVX (SvRV (req));
+
+        if (c->cb)
+          {
+            ev_unref ();
+            SvREFCNT_dec (c->cb);
+            c->cb = 0;
+            adns_cancel (c->query);
+            SvREFCNT_dec (c->self);
+          }
+}
+
+
+
+
