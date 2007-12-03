@@ -227,7 +227,7 @@ update_now (EV_P)
   ev_tstamp t = ev_now ();
 
   tv_now.tv_sec  = (long)t;
-  tv_now.tv_usec = (long)((t - (ev_tstamp)tv_now.tv_sec) * 1e-6);
+  tv_now.tv_usec = (long)((t - (ev_tstamp)tv_now.tv_sec) * 1e6);
 }
 
 static void
@@ -239,6 +239,9 @@ idle_cb (EV_P_ ev_idle *w, int revents)
 static void
 timer_cb (EV_P_ ev_timer *w, int revents)
 {
+  update_now ();
+
+  adns_processtimeouts (ads, &tv_now);
 }
 
 static void
