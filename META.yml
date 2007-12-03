@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                EV-ADNS
-version:             0.1
+version:             0.2
 abstract:            ~
 license:             ~
 generated_by:        ExtUtils::MakeMaker version 6.32

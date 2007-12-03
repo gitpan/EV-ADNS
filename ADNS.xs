@@ -217,6 +217,7 @@ static struct pollfd *fds;
 static int nfd, mfd;
 static ev_io *iow;
 static ev_timer tw;
+static ev_idle iw;
 static ev_prepare prepare_ev;
 static struct timeval tv_now;
 
@@ -227,6 +228,12 @@ update_now (EV_P)
 
   tv_now.tv_sec  = (long)t;
   tv_now.tv_usec = (long)((t - (ev_tstamp)tv_now.tv_sec) * 1e-6);
+}
+
+static void
+idle_cb (EV_P_ ev_idle *w, int revents)
+{
+  ev_idle_stop (EV_A_ w);
 }
 
 static void
@@ -255,6 +262,9 @@ prepare_cb (EV_P_ ev_prepare *w, int revents)
       ev_ref ();
       ev_timer_stop (EV_A_ &tw);
     }
+
+  if (ev_is_active (&iw))
+    ev_idle_stop (EV_A_ &iw);
 
   for (i = 0; i < nfd; ++i)
     {
@@ -388,9 +398,11 @@ BOOT:
 
   I_EV_API ("EV::ADNS");
 
-  ev_prepare_init (&prepare_ev, prepare_cb); ev_prepare_start (EV_DEFAULT_ &prepare_ev);
+  ev_prepare_init (&prepare_ev, prepare_cb);
+  ev_prepare_start (EV_DEFAULT_ &prepare_ev);
   ev_unref ();
 
+  ev_init (&iw, idle_cb);
   ev_init (&tw, timer_cb);
 
   adns_init (&ads, adns_if_noenv | adns_if_noerrprint | adns_if_noserverwarn | adns_if_noautosys, 0);
@@ -417,6 +429,9 @@ void submit (char *owner, int type, int flags, SV *cb)
 
             c->self = csv;
             c->cb   = newSVsv (cb);
+
+            if (!ev_is_active (&iw))
+              ev_idle_start (EV_A_ &iw);
 
             if (GIMME_V != G_VOID)
               {

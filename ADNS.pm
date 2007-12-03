@@ -1,6 +1,6 @@
 =head1 NAME
 
-EV::ADNS - 
+EV::ADNS - lightweight asynchronous dns queries using EV and libadns
 
 =head1 SYNOPSIS
 
@@ -65,15 +65,15 @@ type:
 
 An IPv4 address in dotted quad (string) form.
 
-=item adns_r_ns_raw, adns_r_cname, adns_r_ptr, adns_r_ptr_raw
+=item EV::ADNS::r_ns_raw, EV::ADNS::r_cname, EV::ADNS::r_ptr, EV::ADNS::r_ptr_raw
 
 The resource record as a simple string.
 
-=item adns_r_txt
+=item EV::ADNS::r_txt
 
 An arrayref of strings.
 
-=item adns_r_ns
+=item EV::ADNS::r_ns
 
 A "host address", a hostname with any number of addresses (hint records).
 
@@ -81,47 +81,47 @@ Currently only the hostname will be stored, so this is alway an arrayref
 with a single element of the hostname. Future versions might add
 additional address entries.
 
-=item adns_r_hinfo
+=item EV::ADNS::r_hinfo
 
 An arrayref consisting of the two strings.
 
-=item adns_r_rp, adns_r_rp_raw
+=item EV::ADNS::r_rp, EV::ADNS::r_rp_raw
 
 An arrayref with two strings.
 
-=item adns_r_mx
+=item EV::ADNS::r_mx
 
 An arrayref consisting of the priority and a "host address" (see
-C<adns_r_ns>). Example:
+C<EV::ADNS::r_ns>). Example:
 
-   [10,"mail10.example.com"]
+   [10, "mail10.example.com"]
 
-=item adns_r_mx_raw:
+=item EV::ADNS::r_mx_raw
 
 An arrayref consisting of the priority and the hostname, e.g. C<[10,
 "mail.example.com"]>.
 
-=item adns_r_soa, adns_r_soa_raw
+=item EV::ADNS::r_soa, EV::ADNS::r_soa_raw
 
 An arrayref consisting of the primary nameserver, admin name, serial,
 refresh, retry expire and minimum times, e.g.:
 
-  ["ns.example.net","hostmaster@example.net",2000001102,86400,21600,2592000,172800]
+  ["ns.example.net", "hostmaster@example.net", 2000001102, 86400, 21600, 2592000, 172800]
 
 The "raw" form doesn't mangle the e-mail address.
 
-=item adns_r_srv_raw
+=item EV::ADNS::r_srv_raw
 
 An arrayref consisting of the priority, weight, port and hostname, e.g.:
 
-   [10,10,5060,"sip1.example.net"]
+   [10, 10, 5060, "sip1.example.net"]
 
-=item adns_r_srv
+=item EV::ADNS::r_srv
 
-The same as C<adns_r_srv_raw>, but the hostname is replaced by a "host
-address" (see C<adns_r_ns>).
+The same as C<EV::ADNS::r_srv_raw>, but the hostname is replaced by a "host
+address" (see C<EV::ADNS::r_ns>).
 
-=item adns_r_unknown
+=item EV::ADNS::r_unknown
 
 A single octet string with the raw contents.
 
@@ -145,7 +145,7 @@ use Carp ();
 use EV ();
 
 BEGIN {
-   $VERSION = '0.1';
+   $VERSION = '0.2';
 
    require XSLoader;
    XSLoader::load (EV::ADNS, $VERSION);

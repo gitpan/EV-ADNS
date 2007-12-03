@@ -1,4 +1,9 @@
 Revision history for EV::ADNS
 
-0.1  
+0.2  Mon Dec  3 12:53:55 CET 2007
+	- use an idle watcher to ensure that our prepare callback
+          is called even when we submit requests late in the event loop.
+        - doc fixes.
+
+0.1  Sat Dec  1 23:35:27 CET 2007
 	- original version, a Glib::EV clone.
