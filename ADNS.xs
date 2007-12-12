@@ -7,12 +7,32 @@
 
 #include "EVAPI.h"
 
-static HV *stash;
-static adns_state ads;
+static struct pollfd *fds;
+static int nfd, mfd;
+static ev_io *iow;
+static ev_timer tw;
+static ev_idle iw;
+static ev_prepare pw;
+static struct timeval tv_now;
+static int outstanding;
+
+static void
+outstanding_inc (adns_state ads)
+{
+  if (!outstanding++)
+    ev_prepare_start (EV_DEFAULT_ &pw);
+}
+
+static void
+outstanding_dec (adns_state ads)
+{
+  --outstanding;
+}
 
 struct ctx
 {
   SV *self;
+  adns_state ads;
   adns_query query;
   SV *cb;
 };
@@ -28,7 +48,7 @@ ha2sv (adns_rr_hostaddr *rr)
 }
 
 static void
-process ()
+process (adns_state ads)
 {
   dSP;
 
@@ -47,9 +67,10 @@ process ()
 
       c = (struct ctx *)ctx;
       cb = c->cb;
-      c->cb = 0;
-      ev_unref ();
+      c->cb = 0; outstanding_dec (ads);
       SvREFCNT_dec (c->self);
+
+      assert (cb);
 
       PUSHMARK (SP);
 
@@ -209,22 +230,17 @@ process ()
       call_sv (cb, G_VOID | G_DISCARD | G_EVAL);
       SPAGAIN;
 
+      if (SvTRUE (ERRSV))
+        warn ("%s", SvPV_nolen (ERRSV));
+
       SvREFCNT_dec (cb);
     }
 }
 
-static struct pollfd *fds;
-static int nfd, mfd;
-static ev_io *iow;
-static ev_timer tw;
-static ev_idle iw;
-static ev_prepare prepare_ev;
-static struct timeval tv_now;
-
 static void
 update_now (EV_P)
 {
-  ev_tstamp t = ev_now ();
+  ev_tstamp t = ev_now (EV_A);
 
   tv_now.tv_sec  = (long)t;
   tv_now.tv_usec = (long)((t - (ev_tstamp)tv_now.tv_sec) * 1e6);
@@ -239,7 +255,8 @@ idle_cb (EV_P_ ev_idle *w, int revents)
 static void
 timer_cb (EV_P_ ev_timer *w, int revents)
 {
-  update_now ();
+  adns_state ads = (adns_state)w->data;
+  update_now (EV_A);
 
   adns_processtimeouts (ads, &tv_now);
 }
@@ -247,6 +264,7 @@ timer_cb (EV_P_ ev_timer *w, int revents)
 static void
 io_cb (EV_P_ ev_io *w, int revents)
 {
+  adns_state ads = (adns_state)w->data;
   update_now (EV_A);
 
   if (revents & EV_READ ) adns_processreadable  (ads, w->fd, &tv_now);
@@ -259,23 +277,24 @@ prepare_cb (EV_P_ ev_prepare *w, int revents)
 {
   int i;
   int timeout = 3600000;
+  adns_state ads = (adns_state)w->data;
 
   if (ev_is_active (&tw))
-    {
-      ev_ref ();
-      ev_timer_stop (EV_A_ &tw);
-    }
+    ev_timer_stop (EV_A_ &tw);
 
   if (ev_is_active (&iw))
     ev_idle_stop (EV_A_ &iw);
 
   for (i = 0; i < nfd; ++i)
-    {
-      ev_ref ();
-      ev_io_stop (EV_A_ iow + i);
-    }
+    ev_io_stop (EV_A_ iow + i);
 
-  process ();
+  process (ads);
+
+  if (!outstanding)
+    {
+      ev_prepare_stop (w);
+      return;
+    }
 
   update_now (EV_A);
 
@@ -291,19 +310,23 @@ prepare_cb (EV_P_ ev_prepare *w, int revents)
 
   ev_timer_set (&tw, timeout * 1e-3, 0.);
   ev_timer_start (EV_A_ &tw);
-  ev_unref ();
 
   // create one ev_io per pollfd
   for (i = 0; i < nfd; ++i)
     {
-      ev_io_init (iow + i, io_cb, fds [i].fd,
+      ev_io *w = iow + i;
+
+      ev_io_init (w, io_cb, fds [i].fd,
         ((fds [i].events & POLLIN ? EV_READ : 0)
          | (fds [i].events & POLLOUT ? EV_WRITE : 0)));
 
-      ev_io_start (EV_A_ iow + i);
-      ev_unref ();
+      w->data = (void *)ads;
+      ev_io_start (EV_A_ w);
     }
 }
+
+static HV *stash;
+static adns_state ads;
 
 MODULE = EV::ADNS                PACKAGE = EV::ADNS
 
@@ -401,14 +424,15 @@ BOOT:
 
   I_EV_API ("EV::ADNS");
 
-  ev_prepare_init (&prepare_ev, prepare_cb);
-  ev_prepare_start (EV_DEFAULT_ &prepare_ev);
-  ev_unref ();
-
-  ev_init (&iw, idle_cb);
-  ev_init (&tw, timer_cb);
-
   adns_init (&ads, adns_if_noenv | adns_if_noerrprint | adns_if_noserverwarn | adns_if_noautosys, 0);
+
+  ev_prepare_init (&pw, prepare_cb);
+  pw.data = (void *)ads;
+
+  ev_init (&iw, idle_cb); ev_set_priority (&iw, EV_MINPRI);
+  iw.data = (void *)ads;
+  ev_init (&tw, timer_cb);
+  tw.data = (void *)ads;
 }
 
 void submit (char *owner, int type, int flags, SV *cb)
@@ -418,6 +442,8 @@ void submit (char *owner, int type, int flags, SV *cb)
  	struct ctx *c = (struct ctx *)SvPVX (csv);
         int r = adns_submit (ads, owner, type, flags, (void *)c, &c->query);
 
+        outstanding_inc (ads);
+
         if (r)
           {
             SvREFCNT_dec (csv);
@@ -426,12 +452,12 @@ void submit (char *owner, int type, int flags, SV *cb)
           }
         else
           {
-            ev_ref ();
             SvPOK_only (csv);
             SvCUR_set (csv, sizeof (struct ctx));
 
             c->self = csv;
             c->cb   = newSVsv (cb);
+            c->ads  = ads;
 
             if (!ev_is_active (&iw))
               ev_idle_start (EV_A_ &iw);
@@ -460,9 +486,8 @@ void DESTROY (SV *req)
 
         if (c->cb)
           {
-            ev_unref ();
             SvREFCNT_dec (c->cb);
-            c->cb = 0;
+            c->cb = 0; outstanding_dec (c->ads);
             adns_cancel (c->query);
             SvREFCNT_dec (c->self);
           }

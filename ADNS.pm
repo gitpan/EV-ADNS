@@ -51,7 +51,7 @@ result record. Example:
       my ($status, $expires, @rr) = @_;
       if ($status == EV::ADNS::s_ok) {
          use JSON::XS;
-         warn to_json \@rr;
+         warn encode_json \@rr;
       }
    }
 
@@ -145,7 +145,7 @@ use Carp ();
 use EV ();
 
 BEGIN {
-   $VERSION = '0.3';
+   $VERSION = '1.0';
 
    require XSLoader;
    XSLoader::load (EV::ADNS, $VERSION);

@@ -23,11 +23,11 @@ my $mm = MM->new({EV::MakeMaker::ev_args (
     LIBS         => ["-ladns"],
     PREREQ_FATAL => 1,
     PREREQ_PM    => {
-       EV                  => 1.3,
+       EV                  => 1.72,
     },
     EXTRA_META => q{
 configure_requires:
-  EV: 1.3
+  EV: 1.72
     },
 
 )});

@@ -1,5 +1,10 @@
 Revision history for EV::ADNS
 
+1.0  Thu Dec 13 00:44:24 CET 2007
+	- only run the prepare watcher if there actually is work to do
+          (this also made the code simpler and faster).
+	- possible future multiplicity support.
+
 0.3  Mon Dec  3 20:02:40 CET 2007
 	- properly call adns_processtimeouts in the timer callback.
 
