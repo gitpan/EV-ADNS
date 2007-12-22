@@ -20,7 +20,7 @@ static void
 outstanding_inc (adns_state ads)
 {
   if (!outstanding++)
-    ev_prepare_start (EV_DEFAULT_ &pw);
+    ev_prepare_start (EV_DEFAULT, &pw);
 }
 
 static void
@@ -249,7 +249,7 @@ update_now (EV_P)
 static void
 idle_cb (EV_P_ ev_idle *w, int revents)
 {
-  ev_idle_stop (EV_A_ w);
+  ev_idle_stop (EV_A, w);
 }
 
 static void
@@ -280,19 +280,19 @@ prepare_cb (EV_P_ ev_prepare *w, int revents)
   adns_state ads = (adns_state)w->data;
 
   if (ev_is_active (&tw))
-    ev_timer_stop (EV_A_ &tw);
+    ev_timer_stop (EV_A, &tw);
 
   if (ev_is_active (&iw))
-    ev_idle_stop (EV_A_ &iw);
+    ev_idle_stop (EV_A, &iw);
 
   for (i = 0; i < nfd; ++i)
-    ev_io_stop (EV_A_ iow + i);
+    ev_io_stop (EV_A, iow + i);
 
   process (ads);
 
   if (!outstanding)
     {
-      ev_prepare_stop (w);
+      ev_prepare_stop (EV_A, w);
       return;
     }
 
@@ -309,7 +309,7 @@ prepare_cb (EV_P_ ev_prepare *w, int revents)
     }
 
   ev_timer_set (&tw, timeout * 1e-3, 0.);
-  ev_timer_start (EV_A_ &tw);
+  ev_timer_start (EV_A, &tw);
 
   // create one ev_io per pollfd
   for (i = 0; i < nfd; ++i)
@@ -321,7 +321,7 @@ prepare_cb (EV_P_ ev_prepare *w, int revents)
          | (fds [i].events & POLLOUT ? EV_WRITE : 0)));
 
       w->data = (void *)ads;
-      ev_io_start (EV_A_ w);
+      ev_io_start (EV_A, w);
     }
 }
 
@@ -460,7 +460,7 @@ void submit (char *owner, int type, int flags, SV *cb)
             c->ads  = ads;
 
             if (!ev_is_active (&iw))
-              ev_idle_start (EV_A_ &iw);
+              ev_idle_start (EV_DEFAULT, &iw);
 
             if (GIMME_V != G_VOID)
               {

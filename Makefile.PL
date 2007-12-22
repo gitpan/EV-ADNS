@@ -7,7 +7,12 @@ print <<EOF;
 *** This is an interface to the asynchronous dns resolver library, libadns
 *** You need to have it installed before using this module.
 ***
-*** For debian/ubuntu, this would get you there: apt-get install libadns1-dev
+*** This module has only been tested with adns-1.4, earlier versions might
+*** work, but are not supported (upgrading is highly recommended due to
+*** the many bugs in earlier versions).
+***
+*** For Debian GNU/Linux and Ubuntu, this would get you there:
+*** apt-get install libadns1-dev
 ***
 
 EOF
@@ -23,11 +28,11 @@ my $mm = MM->new({EV::MakeMaker::ev_args (
     LIBS         => ["-ladns"],
     PREREQ_FATAL => 1,
     PREREQ_PM    => {
-       EV                  => 1.72,
+       EV                  => 2.0,
     },
     EXTRA_META => q{
 configure_requires:
-  EV: 1.72
+  EV: 2.0
     },
 
 )});
