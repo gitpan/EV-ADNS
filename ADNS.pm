@@ -7,7 +7,7 @@ EV::ADNS - lightweight asynchronous dns queries using EV and libadns
  use EV;
  use EV::ADNS;
 
- EV::ADNS::submit "example.com", EV::ADNS::r_a, 0, sub {
+ EV::ADNS::submit "example.com", EV::ADNS::r_addr, 0, sub {
     my ($status, $expires, @a) = @_;
     warn $a[0]; # "127.13.166.3" etc.
  };
@@ -61,7 +61,7 @@ type:
 
 =over 4
 
-=item EV::ADNS::rr_a
+=item EV::ADNS::r_a, EV::ADNS::r_addr
 
 An IPv4 address in dotted quad (string) form.
 
@@ -145,7 +145,7 @@ use Carp ();
 use EV ();
 
 BEGIN {
-   $VERSION = '2.0';
+   $VERSION = '2.1';
 
    require XSLoader;
    XSLoader::load (EV::ADNS, $VERSION);

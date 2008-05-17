@@ -106,6 +106,10 @@ process (adns_state ads)
                 }
                 break;
 
+              case adns_r_addr:
+                sv = newSVpv (inet_ntoa (a->rrs.addr [i].addr.inet.sin_addr), 0);
+                break;
+
               case adns_r_a:
                 sv = newSVpv (inet_ntoa (a->rrs.inaddr [i]), 0);
                 break;
@@ -216,7 +220,6 @@ process (adns_state ads)
                 break;
 
               default:
-              case adns_r_addr:
                 sv = &PL_sv_undef; /* not supported */
                 break;
             }
