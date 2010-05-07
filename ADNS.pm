@@ -145,7 +145,7 @@ use Carp ();
 use EV ();
 
 BEGIN {
-   $VERSION = '2.1';
+   $VERSION = '2.2';
 
    require XSLoader;
    XSLoader::load (EV::ADNS, $VERSION);

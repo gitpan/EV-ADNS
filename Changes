@@ -1,6 +1,10 @@
 Revision history for EV::ADNS
 
-2.1
+2.2  Fri May  7 23:40:40 CEST 2010
+        - avoid accumulating temporaries, which can "leak" memory
+          in certain cases (testcase by Nikita Savin).
+
+2.1  2008-05-17
 	- support r_addr result type.
 
 2.0  Sat Dec 22 17:49:53 CET 2007

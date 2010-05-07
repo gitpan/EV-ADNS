@@ -52,6 +52,9 @@ process (adns_state ads)
 {
   dSP;
 
+  ENTER;
+  SAVETMPS;
+
   for (;;)
     {
       int i;
@@ -238,6 +241,9 @@ process (adns_state ads)
 
       SvREFCNT_dec (cb);
     }
+
+  FREETMPS;
+  LEAVE;
 }
 
 static void
@@ -495,7 +501,4 @@ void DESTROY (SV *req)
             SvREFCNT_dec (c->self);
           }
 }
-
-
-
 
